@@ -70,23 +70,29 @@ class InAppUpdatePlugin : FlutterPlugin, MethodCallHandler,
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
         if (requestCode == REQUEST_CODE_START_UPDATE) {
             if (appUpdateType == AppUpdateType.IMMEDIATE) {
-                if (resultCode == RESULT_CANCELED) {
-                    updateResult?.error("USER_DENIED_UPDATE", resultCode.toString(), null)
-                } else if (resultCode == RESULT_OK) {
-                    updateResult?.success(null)
-                } else if (resultCode == ActivityResult.RESULT_IN_APP_UPDATE_FAILED) {
-                    updateResult?.error("IN_APP_UPDATE_FAILED", "Some other error prevented either the user from providing consent or the update to proceed.", null)
+                when (resultCode) {
+                    RESULT_CANCELED -> {
+                        updateResult?.error("USER_DENIED_UPDATE", resultCode.toString(), null)
+                    }
+                    RESULT_OK -> {
+                        updateResult?.success(null)
+                    }
+                    ActivityResult.RESULT_IN_APP_UPDATE_FAILED -> {
+                        updateResult?.error("IN_APP_UPDATE_FAILED", "Some other error prevented either the user from providing consent or the update to proceed.", null)
+                    }
                 }
                 updateResult = null
                 return true
             }else if (appUpdateType == AppUpdateType.FLEXIBLE) {
-                if (resultCode == RESULT_CANCELED) {
-                    updateResult?.error("USER_DENIED_UPDATE", resultCode.toString(), null)
-                    updateResult = null
-                }
-                else if (resultCode == ActivityResult.RESULT_IN_APP_UPDATE_FAILED) {
-                    updateResult?.error("IN_APP_UPDATE_FAILED", resultCode.toString(), null)
-                    updateResult = null
+                when (resultCode) {
+                    RESULT_CANCELED -> {
+                        updateResult?.error("USER_DENIED_UPDATE", resultCode.toString(), null)
+                        updateResult = null
+                    }
+                    ActivityResult.RESULT_IN_APP_UPDATE_FAILED -> {
+                        updateResult?.error("IN_APP_UPDATE_FAILED", resultCode.toString(), null)
+                        updateResult = null
+                    }
                 }
                 return true
             }
@@ -101,7 +107,7 @@ class InAppUpdatePlugin : FlutterPlugin, MethodCallHandler,
                 activityPluginBinding.addActivityResultListener(callback)
             }
 
-            override fun activity(): Activity? {
+            override fun activity(): Activity {
                 return activityPluginBinding.activity
             }
         }
@@ -117,7 +123,7 @@ class InAppUpdatePlugin : FlutterPlugin, MethodCallHandler,
                 activityPluginBinding.addActivityResultListener(callback)
             }
 
-            override fun activity(): Activity? {
+            override fun activity(): Activity {
                 return activityPluginBinding.activity
             }
         }
@@ -158,14 +164,21 @@ class InAppUpdatePlugin : FlutterPlugin, MethodCallHandler,
     }
 
     private fun performImmediateUpdate(result: Result) = checkAppState(result) {
+        val activity = activityProvider?.activity()
+        requireNotNull(activity) {
+            result.error("REQUIRE_FOREGROUND_ACTIVITY", "in_app_update requires a foreground activity", null)
+        }
+
         appUpdateType = AppUpdateType.IMMEDIATE
         updateResult = result
-        appUpdateManager?.startUpdateFlowForResult(
-          appUpdateInfo,
-          AppUpdateType.IMMEDIATE,
-          activityProvider?.activity(),
-          REQUEST_CODE_START_UPDATE
-        )
+        appUpdateInfo?.let {
+            appUpdateManager?.startUpdateFlowForResult(
+                it,
+                AppUpdateType.IMMEDIATE,
+                activity,
+                REQUEST_CODE_START_UPDATE
+            )
+        }
     }
 
     private fun checkAppState(result: Result, block: () -> Unit) {
@@ -182,14 +195,21 @@ class InAppUpdatePlugin : FlutterPlugin, MethodCallHandler,
     }
 
     private fun startFlexibleUpdate(result: Result) = checkAppState(result) {
+        val activity = activityProvider?.activity()
+        requireNotNull(activity) {
+            result.error("REQUIRE_FOREGROUND_ACTIVITY", "in_app_update requires a foreground activity", null)
+        }
+
         appUpdateType = AppUpdateType.FLEXIBLE
         updateResult = result
-        appUpdateManager?.startUpdateFlowForResult(
-          appUpdateInfo,
-          AppUpdateType.FLEXIBLE,
-          activityProvider?.activity(),
-          REQUEST_CODE_START_UPDATE
-        )
+        appUpdateInfo?.let {
+            appUpdateManager?.startUpdateFlowForResult(
+                it,
+                AppUpdateType.FLEXIBLE,
+                activity,
+                REQUEST_CODE_START_UPDATE
+            )
+        }
         appUpdateManager?.registerListener { state ->
             if (state.installStatus() == InstallStatus.DOWNLOADED) {
                 updateResult?.success(null)
@@ -210,14 +230,15 @@ class InAppUpdatePlugin : FlutterPlugin, MethodCallHandler,
     }
 
     private fun checkForUpdate(result: Result) {
-        requireNotNull(activityProvider?.activity()) {
+        val activity = activityProvider?.activity()
+        requireNotNull(activity) {
             result.error("REQUIRE_FOREGROUND_ACTIVITY", "in_app_update requires a foreground activity", null)
         }
 
         activityProvider?.addActivityResultListener(this)
         activityProvider?.activity()?.application?.registerActivityLifecycleCallbacks(this)
 
-        appUpdateManager = AppUpdateManagerFactory.create(activityProvider?.activity())
+        appUpdateManager = AppUpdateManagerFactory.create(activity)
 
         // Returns an intent object that you use to check for an update.
         val appUpdateInfoTask = appUpdateManager!!.appUpdateInfo
